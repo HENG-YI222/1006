@@ -1,0 +1,469 @@
+/*┌─────────────────────────────────-┐*/
+/*│				Bestcomm document description					   │*/
+/*├─────────────────────────────────-┤*/
+/*│  Name    :  Simple FIFO.c	   									   │*/
+/*│  Author  :  Devin  											   │*/
+/*│  Date    :  2020/10/09	  										   │*/
+/*│  Version :  V1.1  											  	   │*/
+/*├─────────────────────────────────-┤*/
+/*│				    Function description		   			  	   │*/
+/*├─────────────────────────────────-┤*/
+/*│  1_Auto entry RX MODE after power on reset.			  		   │*/
+/*│  2_Entry TX MODE after KEY was released whitch was pressed. 	   │*/
+/*│  	Then will retrun back to RX MODE after TX finish.			   │*/
+/*│  3_After TX finish,LEDx will flash one time.					   │*/
+/*│  3_After RX finish,LEDx will flash one time.					   │*/
+/*│  																   │*/
+/*│  																   │*/
+/*└─────────────────────────────────-┘*/
+
+/*------------------------------------------------------------------*/
+/*							Header									*/
+/*------------------------------------------------------------------*/
+#include "MCU.h"
+#include "RF_API.h"
+#include "SYS_API.h"
+#include "Configuration.h"
+
+/*------------------------------------------------------------------*/
+/*							Statement								*/
+/*------------------------------------------------------------------*/
+void Sys_init(void);  
+void fun_RamInit(void);
+void Delay_ms(unsigned short time);
+void KEY_Process(unsigned char key_status);
+void RF_Finished_Process(unsigned char irq);
+void DATA_Process(unsigned char *FIFO);
+void TM0_init(void);
+void TB0_init(void);
+
+#if LCM_Function_EN
+const unsigned char Header1[]="Simple";
+const unsigned char Header2[]="FIFO";
+const unsigned char MODE[]="TX/RX V11";
+const unsigned char DATA[]="2020/10/9";
+#endif
+
+/*------------------------------------------------------------------*/
+/*							Variable								*/
+/*------------------------------------------------------------------*/
+struct define_flag
+{
+	unsigned char Key_Stas;																	// KEY states
+	unsigned char LED_Stas;																	// LED states
+	unsigned char RFmode;																	// RF_MODE
+	unsigned char RFstep;																	// RF process step
+	unsigned char fRFINT:1;																	// RF interrupt flag
+	unsigned char f8ms:1;																	// MCU timebase time-out 8ms flag
+};
+struct define_flag Mflag;
+
+
+/*------------------------------------------------------------------*/
+/*							Define									*/
+/*------------------------------------------------------------------*/
+
+
+
+/*------------------------------------------------------------------*/
+/*						  MAIN Process								*/
+/*------------------------------------------------------------------*/
+void main()
+{
+	Sys_init();																				// System Initialization
+	
+	//RF_Init();																			// RF Initialization
+	
+	Mflag.RFmode = RF_TX;																	// set RF mode flag as RX mode
+	TM0_init();
+	//TB0_init();
+	//count=0;
+	_pc0=1;
+	while(1)
+	{
+				
+		GCC_CLRWDT();																		// clear WDT count
+		/*if(Mflag.f8ms)
+		{
+			Mflag.f8ms = 0;																	// clear 8ms flag
+			Mflag.Key_Stas = Scan_KEY();													// Scan key loop
+			LED_PROC();																		// LED flash loop
+		}	
+	
+		if(Mflag.Key_Stas)																	// while KEY status changed
+		{
+			if(Mflag.RFmode != RF_TX)														// while not being tx mode
+			{
+				KEY_Process(Mflag.Key_Stas);												// while not being tx mode
+			}
+			Mflag.Key_Stas = 0;																// clear key flag
+		}
+		*/
+		//if(Mflag.RFmode == RF_TX)															// while RF mode flag = TX
+		//	SimpleFIFO_TX_Process(&Mflag.RFstep,&RF_IRQ,&Mflag.RFmode);						// RF Simple FIFO TX porcess	
+			
+		//if(Mflag.RFmode == RF_RX)															// while RF mode flag = RX
+		//	SimpleFIFO_RX_Process(&Mflag.RFstep,&RF_IRQ,&Mflag.RFmode);						// RF Simple FIFO RX porcess	
+		
+		//RF_Finished_Process(RF_IRQ);														// Process for after RF TX/RX finished
+	}	
+}
+
+
+/*------------------------------------------------------------------*/
+/*							 Function								*/
+/*------------------------------------------------------------------*/
+//*********************************************//
+// name		:	Sys_init
+// input	:	none
+// output	:	none
+//*********************************************//
+void Sys_init(void)
+{
+	_papu = 0xFF;																			// I/O Initialization
+	_pbpu = 0xFF;
+	_pcc = 0xFF;
+	_pcpu = 0xFF;
+	_pec = 0xFF;
+	_pepu = 0xFF;
+	_pfc = 0xFF;
+	_pfpu = 0xFF;
+
+	fun_RamInit();																			// clear RAM all bank
+	_hircc = 0x09;																			// 16MHz, hircen 
+	_psc0r = 0x00;																			// prescaler = fsys
+	_scc = 0x00;
+	//_psc0r = 0x02;																		// prescaler = fsub
+	//_scc = 0x00;
+	//_hircc = 0x01; 																		// 8MHz, hircen 
+	//_wdtc = 0x57;																			// wdt 8s
+	
+	LED_Prot_init();																		// LED Port init
+	
+	KEY_Prot_init();																		// KEY Port init
+	
+//	UART_Prot_init();																		// UART Port init
+
+//	ADC_Prot_init();																		// ADC Port init
+
+#if	LCM_Function_EN
+	LCM_Prot_init();																		// LCM Port init
+	LCM_init();																				// LCM Configuration
+	LCM_ClearScreen();																		// LCM clear hold screen
+	LCM_BCLogo();																			// LCM display mode
+	LCM_Display6x8(2,14,Header1,0);															// LCM display mode
+	LCM_Display6x8(3,15,Header2,0);															// LCM display mode
+	LCM_Display6x8(5,12,MODE,0);															// LCM display mode
+	LCM_Display6x8(6,12,DATA,0);															// LCM display data
+#endif
+/*	
+	_psc0r = 0B00000010;																	// TB0 Initialization
+	_tb0c  = 0B00000000;																	// TB0 = 8ms
+	_tb0on = 1;																				// enable tb0
+	//_tb0e  = 1;																				// enable tb0 interrupt
+	
+	RF_intxS1 = 1;																			// INT0 for RF IRQ
+	RF_intxS0 = 0;																			// INT0 falling edge
+	RF_INT_CTR = 1;																			// PA1 set input
+	RF_INT_PU = 1;																			// PA1 set pull-high
+	RF_intxPS = 1;																			// PA1 for INT0
+	RF_INT_EN = 1;																			// enable INT0 interrupt
+	
+	_emi   = 1;	
+	*/																			// enable EMI
+}
+//*********************************************//
+// name		:	TM0_init
+// input	:	none
+// output	:	none
+//*********************************************//
+void TM0_init(void)
+{
+	
+	//timer Initialization
+		//_emi 	=0;
+		_stm0al  =0XA0; 																	//0X0FA0=4000
+        _stm0ah  =0X0F;
+		_stm0dl=0;
+		_stm0dh=0;																
+		//_stm0c0	=0x08;                                                                 // Enable STM ON.
+		_stm0c1= 0X01;
+		_st0pau=0;
+		_st0ck0=0;
+		_st0ck1=0;
+		_st0ck2=0;
+		_st0on=1;																			
+		
+        
+		_stm0ae =1;																			// Enable COMPARATOR A
+		_mf0e	=1;																	 		// Enable Multi-function 0 interrupt
+		_mf0f	=0;
+		_stm0af =0;	
+		_emi = 1;																			// Enable EMI		
+		
+}
+//*********************************************//
+// name		:	TB0_init
+// input	:	none
+// output	:	none
+//*********************************************//
+void TB0_init(void)
+{
+	_psc0r = 0B00000000;																	// TB0 Initialization
+	_tb0c  = 0B00000110;																	// TB0 = 1ms
+	_tb0e  = 1;																				// enable tb0 interrupt
+	_tb0f  = 0;
+	_tb0on = 1;																				// enable tb0
+}
+
+
+//*********************************************//
+// name		:	fun_RamInit
+// input	:	none
+// output	:	none
+//*********************************************//
+void fun_RamInit(void)
+{
+	for(_mp1h=0;_mp1h<4;_mp1h++)
+	{
+		_mp1l = 0x80;
+		for(_tblp = 0x80;_tblp >0;_tblp--)
+		{
+			_iar1 = 0;
+			_mp1l++;
+		}
+	}
+	_mp1h=0;	
+}
+//*********************************************//
+// name		:	TM0_proc interrupt (1ms)
+//*********************************************//
+void __attribute((interrupt(0x14))) TM0_proc(void)
+{ 	 
+static int count=0;	
+count++;
+	if(count==1000)
+	{
+		_pc0=~_pc0;
+		count=0;
+	}	    
+		_mf0f	=0;  	 //CLEAR MF0 FLAG
+		_stm0af =0;   	//CLEAR COMPARATOR A FLAG
+		
+		
+}
+
+
+
+//*********************************************//
+// name		:	TB0_proc
+//*********************************************//
+/*void __attribute((interrupt(0x24))) TB0_proc(void)
+{
+	count=count+1;
+	Mflag.f8ms = 1;
+	_pc0=~_pc0;	
+	_tb0on = 1;																				// enable tb0
+	_tb0e  = 1;																				// enable tb0 interrupt
+	_tb0f  = 0;
+	_emi   = 1;
+}
+*/
+
+//*********************************************//
+// name		:	INT3_proc
+//*********************************************//
+void __attribute((interrupt(0x34))) INT3_proc(void)
+{
+	Mflag.fRFINT = 1;
+}
+
+
+//*********************************************//
+// name		:	Delay_ms
+// input	:	ms
+// output	:	none
+//*********************************************//
+void Delay_ms(unsigned short time)
+{
+	unsigned short a;
+	unsigned char b,c;
+	
+    for(a=0;a<time;a++)
+    {
+    	for(b=0;b<5;b++)
+    	{
+    		for(c=0;c<102;c++) asm("nop");
+    	}
+    }
+}
+
+//*********************************************//
+// name		:	KEY_Process
+// input	:	key_status
+// output	:	none
+//*********************************************//
+void KEY_Process(unsigned char key_status)
+{
+	switch(Mflag.Key_Stas)
+	{
+		case KEY1:
+			RF_TXFIFO[0] = 0x01;															// put data into RF_TXFIFO
+			DATA_Process(RF_TXFIFO);														// put data into RF_TXFIFO
+			Mflag.RFstep = 0;																// reset RF step
+			Mflag.RFmode = RF_TX;															// set RF mode flag as TX															
+			break;
+			
+		case KEY2:
+			RF_TXFIFO[0] = 0x02;
+			DATA_Process(RF_TXFIFO);
+			Mflag.RFstep = 0;
+			Mflag.RFmode = RF_TX;
+			break;
+			
+		case KEY3:
+			RF_TXFIFO[0] = 0x03;
+			DATA_Process(RF_TXFIFO);
+			Mflag.RFstep = 0;
+			Mflag.RFmode = RF_TX;
+			break;
+			
+		case KEY4:
+			RF_TXFIFO[0] = 0x04;
+			DATA_Process(RF_TXFIFO);
+			Mflag.RFstep = 0;
+			Mflag.RFmode = RF_TX;
+			break;	
+			
+		default:
+			break;
+	}
+}
+
+//*********************************************//
+// name		:	RF_Finished_Process
+// input	:	key_status
+// output	:	none
+//*********************************************//
+void RF_Finished_Process(unsigned char irq)
+{   
+	if(RF_IRQ & 0x81)																		// while TX finished
+	{
+		if(RF_IRQ & 0x01)
+		{
+			/*switch(RF_TXFIFO[0])															// display LED show TX success
+			{
+				case 0x01:
+					LEDx_Flash(LED1,1,10);
+					break;
+				case 0x02:
+					LEDx_Flash(LED2,1,10);
+					break;
+				case 0x03:
+					LEDx_Flash(LED3,1,10);
+					break;
+				case 0x04:
+					LEDx_Flash(LED4,1,10);
+					break;
+				default:
+					break;
+			}
+			*/	
+		}
+		else
+		{
+			
+		}
+		RF_IRQ &= 0x7E;																			// clear IRQ flag
+		Mflag.RFstep = 0;
+		Mflag.RFmode = RF_RX;																// set RF mode flag as RX
+	}
+	
+	if(RF_IRQ & 0x12)																		// while RX finished
+	{
+		if(RF_IRQ & 0x10)																	// while RX finished but CRC error
+		{
+			
+			
+			
+		}
+		else																				// while RX finished and CRC OK
+		{
+			switch(RF_RXFIFO[0])															// check RF DATA
+			{
+				case 0x01:
+					LEDx_Flash(LED1,1,10);
+					break;
+				case 0x02:
+					LEDx_Flash(LED2,1,10);
+					break;
+				case 0x03:
+					LEDx_Flash(LED3,1,10);
+					break;
+				case 0x04:
+					LEDx_Flash(LED4,1,10);
+					break;
+				default:
+					break;
+			}
+		}
+		RF_IRQ &= 0xed;																			// clear IRQ flag
+		Mflag.RFstep = 0;
+		Mflag.RFmode = RF_RX;																// set RF mode flag as RX		
+	}
+}
+
+
+//*********************************************//
+// name		:	DATA_Process
+// input	:	RF_TXFIFO
+// output	:	none
+//*********************************************//
+void DATA_Process(unsigned char *FIFO)
+{
+	FIFO++;
+	*FIFO = 0x22;
+	//＃＃
+	//＃＃
+	//＃＃
+	FIFO++;
+	*FIFO = 0x33;
+}
+
+//*********************************************//
+// name		:	System_deepsleep
+// input	:	none
+// output	:	none
+// remark	:	After wake up from this deepsleep mode ,
+//				system must to execute the I/O init again.
+//*********************************************//
+void System_deepsleep(void)
+{	
+	_pas0 = 0;
+	_pas1 = 0;
+	_pbs0 = 0;
+	_pbs1 = 0;
+	_pcs0 = 0;
+	_pcs1 = 0;
+	_pes0 = 0;
+	_pfs1 = 0;
+	
+	_pa = 0xff;
+	_pac = 0;
+	_pawu = 0;
+	_pb = 0xff;
+	_pbc = 0;
+	_pc = 0xff;
+	_pcc = 0;
+	_pe = 0xff;
+	_pec = 0;	
+	_pf = 0xff;
+	_pfc = 0;
+
+	_emi = 0;
+	_wdtc = 0xa8;	//WDT off
+	_lvden = 0;		//LVD off
+	_fhiden =0;		//HIRC
+	_fsiden =0;		//LIRC
+	_halt();
+}
